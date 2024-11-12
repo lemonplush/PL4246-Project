@@ -1,0 +1,523 @@
+---
+title: "Project Report"
+output: html_document
+---
+```{r setup, include=FALSE} 
+library(dplyr)
+library(igraph)
+library(qgraph)
+library(ggplot2)
+setwd(".")
+
+# Load the data into R
+data <- read.csv("./stars-data_99.csv")
+
+# View the first few rows of the data to confirm it loaded correctly
+head(data)
+```
+
+```{r studio, echo=FALSE}
+# Count the number of students by year of study
+year_counts <- table(data$year_of_study)
+
+# Calculate gender distribution
+gender_counts <- table(data$gender)
+
+# Print the summary information
+cat("\nYear of Study distribution:\n")
+print(year_counts)
+cat("\nGender distribution:\n")
+print(gender_counts)
+```
+
+
+```{r identify missing data, echo=FALSE}
+# Count the number of missing values per column
+missing_counts <- colSums(is.na(data))
+total_missing <- sum(is.na(data))
+
+# Display missing data information
+cat("Number of missing values per column:\n")
+print(missing_counts)
+cat("Total number of missing values:", total_missing, "\n")
+```
+
+```{r clean missing data, echo=FALSE}
+# Exclude rows with missing values in specific columns
+data_cleaned <- data %>%
+  filter(!is.na(year_of_study), 
+         !is.na(ethnicity), 
+         !is.na(HM_or_not))
+
+# Display the first few rows of the dataset after filtering
+cat("Rows after excluding specific missing data:\n")
+print(nrow(data_cleaned))
+head(data_cleaned)
+
+# Calculate the column mean for `item_33`, excluding NAs
+item_33_mean <- mean(data_cleaned$item_33, na.rm = TRUE)
+
+# Replace NA values in `item_33` with the column mean
+data_cleaned$item_33[is.na(data_cleaned$item_33)] <- item_33_mean
+
+# Count the number of missing values per column
+missing_counts <- colSums(is.na(data_cleaned))
+total_missing <- sum(is.na(data_cleaned))
+
+# Display missing data information
+cat("Number of missing values per column:\n")
+print(missing_counts)
+cat("Total number of missing values:", total_missing, "\n")
+```
+
+```{r create and visualise network, echo=FALSE}
+# Assuming data_cleaned contains the responses to the items
+# Select item columns (e.g., item_1 to item_50)
+item_data <- data_cleaned %>% select(starts_with("item_"))
+
+# Compute the correlation matrix for items
+cor_matrix <- cor(item_data, use = "pairwise.complete.obs")
+
+# Create an adjacency matrix: we will threshold the correlations
+# to only include correlations above a certain value (e.g., 0.3)
+adj_matrix <- cor_matrix
+adj_matrix[abs(adj_matrix) < 0.3] <- 0  # Set correlations below 0.3 to 0
+
+# Create the graph using the adjacency matrix (items as nodes)
+graph_items <- graph_from_adjacency_matrix(adj_matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+```
+
+```{r plot_network, echo=FALSE, fig.width=8, fig.height=8}
+# Create the graph using the adjacency matrix (items as nodes)
+graph_items <- graph_from_adjacency_matrix(adj_matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+# Subscale items and colors
+subscale_items <- list(
+  "Test and Class Anxiety" = c("item_1", "item_4", "item_8", "item_10", "item_13", "item_15", "item_21", "item_22"),
+  "Interpretation Anxiety" = c("item_2", "item_5", "item_6", "item_7", "item_9", "item_11", "item_12", "item_14", "item_17", "item_18", "item_20"),
+  "Fear of Asking for Help" = c("item_3", "item_16", "item_19", "item_23"),
+  "Worth of Statistics" = c("item_24", "item_26", "item_27", "item_28", "item_29", "item_33", "item_35", "item_36", "item_37", "item_40", "item_41", "item_42", "item_45", "item_47", "item_49", "item_50"),
+  "Fear of Statistics Teacher" = c("item_25", "item_31", "item_34", "item_38", "item_39", "item_48", "item_51"),
+  "Computation Self-Concept" = c("item_30", "item_32", "item_43", "item_44", "item_46")
+)
+
+# Assign pastel colors to each subscale
+subscale_colors <- c(
+  "Test and Class Anxiety" = "#FFB3BA",  # Pastel red
+  "Interpretation Anxiety" = "#FFDFBA",  # Pastel orange
+  "Fear of Asking for Help" = "#FFEB99",  # Pastel yellow
+  "Worth of Statistics" = "#B3E2FF",  # Pastel blue
+  "Fear of Statistics Teacher" = "#D1B3E2",  # Pastel purple
+  "Computation Self-Concept" = "#FFCCFF"  # Pastel pink
+)
+
+# Create a color vector for the nodes based on their subscale
+node_colors <- rep(NA, 51)
+
+# Loop through subscales and assign colors to the corresponding items
+for (subscale in names(subscale_items)) {
+  items <- subscale_items[[subscale]]
+  node_colors[which(paste0("item_", 1:51) %in% items)] <- subscale_colors[subscale]
+}
+
+# Set the file output with a landscape orientation (wider plot)
+png("network_plot.png", width = 1200, height = 800)  # Width > Height for a landscape format
+
+# Use Kamada-Kawai layout
+layout_matrix <- layout_with_kk(graph_items)
+
+# Plot the network with the chosen layout
+plot(graph_items, 
+     vertex.size = 25,  # Reduce node size
+     vertex.color = node_colors,  # Apply colors to nodes based on subscale
+     vertex.label.cex = 2,  # Increase label size
+     vertex.label.color = "black",  # Black color for labels
+     edge.color = "gray", 
+     edge.width = E(graph_items)$weight * 5,  # Adjust edge width based on correlation strength
+     layout = layout_matrix,  # Use the Kamada-Kawai layout
+     main = "Network of STARS Questionnaire",  # Title
+     cex.main = 2,            # Increase the size of the title
+     margin = c(0.1, 0.1, 0.1, 0.1))  # Adjust margins to prevent clipping
+
+# Add the legend
+legend("topright", 
+       legend = names(subscale_colors), 
+       fill = subscale_colors, 
+       title = "Subscales",
+       cex = 1.5, 
+       border = "white", 
+       bty = "n")
+
+# Close the device to save the file
+dev.off()
+```
+
+```{r network info, echo=FALSE, fig.width=8, fig.height=8}
+# Detect communities in the network
+communities <- cluster_louvain(graph_items)
+
+# Get the number of communities
+num_communities <- length(unique(membership(communities)))
+cat("Number of communities detected:", num_communities, "\n")
+
+# Set up base plot with subscale colors
+png("network_plot_with_communities.png", width = 1200, height = 800)  # Wider format for landscape orientation
+
+# Plot the network with subscale colors first
+plot(graph_items, 
+     vertex.size = 25,
+     vertex.color = node_colors,   # Use subscale colors
+     vertex.label.cex = 2,         # Label size
+     vertex.label.color = "black", # Label color
+     edge.color = "gray",          # Edge color
+     edge.width = E(graph_items)$weight * 5,  # Edge width based on correlation strength
+     layout = layout_matrix,       # Kamada-Kawai layout
+     main = "Network of STARS Questionnaire with Community Highlights")  # Main title
+
+# Overlay transparent highlight borders for each community
+for (community in unique(membership(communities))) {
+  community_nodes <- which(membership(communities) == community)
+  highlight_color <- rgb(1, 0, 0, alpha = 0.1)  # Adjusted transparency (0.1 for lighter shade)
+
+  # Overlay the community with slightly larger semi-transparent circles
+  plot(graph_items,
+       vertex.size = 30,  # Slightly larger size for highlight effect
+       vertex.color = highlight_color,  # Transparent color overlay
+       vertex.label = NA,               # Hide labels to avoid overlap
+       mark.groups = list(community_nodes), # Highlight each community group
+       add = TRUE)                      # Overlay on existing plot
+}
+
+# Add legend for subscales
+legend("topright", 
+       legend = names(subscale_colors), 
+       fill = subscale_colors, 
+       title = "Subscales",
+       cex = 1.5, 
+       border = "white", 
+       bty = "n")
+
+# Close the device to save the plot
+dev.off()
+```
+```{r community detection, include=FALSE}
+num_communities <- length(unique(membership(communities)))
+cat("Number of communities detected:", num_communities, "\n")
+
+for (community in unique(membership(communities))) {
+  community_nodes <- which(membership(communities) == community)
+  community_size <- length(community_nodes)
+  cat("Community", community, "has", community_size, "nodes.\n")
+  
+  # Calculate centrality measures for nodes in the community
+  community_degree <- degree(graph_items, v = community_nodes)
+  community_betweenness <- betweenness(graph_items, v = community_nodes)
+  community_closeness <- closeness(graph_items, v = community_nodes)
+  
+  cat("Centrality for Community", community, ":\n")
+  cat("Degree centrality:", mean(community_degree), "\n")
+  cat("Betweenness centrality:", mean(community_betweenness), "\n")
+  cat("Closeness centrality:", mean(community_closeness), "\n")
+}
+```
+
+```{r identify high anxiety items, echo=FALSE}
+# Calculate degree centrality
+degree_centrality <- degree(graph_items)
+
+# Get the top 5 items with the highest degree centrality
+high_degree_items <- order(degree_centrality, decreasing = TRUE)[1:5]
+
+# Print the high-degree items
+cat("Top 5 items with highest degree centrality:", names(degree_centrality)[high_degree_items], "\n")
+
+# Calculate betweenness centrality
+betweenness_centrality <- betweenness(graph_items)
+
+# Get the top 5 items with the highest betweenness centrality
+high_betweenness_items <- order(betweenness_centrality, decreasing = TRUE)[1:5]
+
+# Print the high-betweenness items
+cat("Top 5 items with highest betweenness centrality:", names(betweenness_centrality)[high_betweenness_items], "\n")
+
+# Calculate closeness centrality
+closeness_centrality <- closeness(graph_items)
+
+# Get the top 5 items with the highest closeness centrality
+high_closeness_items <- order(closeness_centrality, decreasing = TRUE)[1:5]
+
+# Print the high-closeness items
+cat("Top 5 items with highest closeness centrality:", names(closeness_centrality)[high_closeness_items], "\n")
+
+# Combine centrality measures into a data frame for comparison
+centrality_df <- data.frame(
+  Item = names(degree_centrality),
+  Degree = degree_centrality,
+  Betweenness = betweenness_centrality,
+  Closeness = closeness_centrality
+)
+
+# Rank items by combined centrality (for example, by sum of centrality measures)
+centrality_df$combined_centrality <- centrality_df$Degree + centrality_df$Betweenness + centrality_df$Closeness
+top_central_items <- centrality_df[order(centrality_df$combined_centrality, decreasing = TRUE), ]
+
+# Print the top items based on combined centrality
+cat("Top items with the highest combined centrality:\n")
+print(top_central_items[1:5, ])
+```
+
+```{r simulate network attack 1, echo=FALSE}
+# Step 1: Create a copy of the original network (graph_items)
+graph_copy <- graph_items  # Duplicate the original graph to preserve it
+
+# Step 2: Simulate the attack by removing the high-anxiety items
+high_anxiety_items <- names(degree_centrality)[high_degree_items]  # Using the top high-degree items as high anxiety items
+graph_after_attack <- delete_vertices(graph_copy, high_anxiety_items)
+
+# Step 3: Calculate centrality metrics (degree, betweenness, closeness) before and after the attack
+degree_before_attack <- degree(graph_items)
+degree_after_attack <- degree(graph_after_attack)
+
+betweenness_before_attack <- betweenness(graph_items)
+betweenness_after_attack <- betweenness(graph_after_attack)
+
+closeness_before_attack <- closeness(graph_items)
+closeness_after_attack <- closeness(graph_after_attack)
+
+# Step 4: Additional network metrics (before and after the attack)
+# 1. Network Density
+density_before <- edge_density(graph_items)
+density_after <- edge_density(graph_after_attack)
+
+# 2. Diameter (longest shortest path in the network)
+diameter_before <- diameter(graph_items)
+diameter_after <- diameter(graph_after_attack)
+
+# 3. Average Path Length
+avg_path_length_before <- mean_distance(graph_items)
+avg_path_length_after <- mean_distance(graph_after_attack)
+
+# 4. Modularity (using Louvain community detection)
+communities_before <- cluster_louvain(graph_items)
+modularity_before <- modularity(communities_before)
+
+communities_after <- cluster_louvain(graph_after_attack)
+modularity_after <- modularity(communities_after)
+
+# 5. Clustering Coefficient (global clustering coefficient)
+clustering_before <- transitivity(graph_items, type = "global")
+clustering_after <- transitivity(graph_after_attack, type = "global")
+
+# Step 5: Calculate percentage change for each metric
+# For degree and betweenness, calculate the percentage change
+degree_percentage_change <- ((mean(degree_after_attack) - mean(degree_before_attack)) / mean(degree_before_attack)) * 100
+betweenness_percentage_change <- ((mean(betweenness_after_attack) - mean(betweenness_before_attack)) / mean(betweenness_before_attack)) * 100
+closeness_percentage_change <- ((mean(closeness_after_attack) - mean(closeness_before_attack)) / mean(closeness_before_attack)) * 100
+
+# For other metrics, calculate the percentage change directly
+density_percentage_change <- ((density_after - density_before) / density_before) * 100
+diameter_percentage_change <- ((diameter_after - diameter_before) / diameter_before) * 100
+avg_path_length_percentage_change <- ((avg_path_length_after - avg_path_length_before) / avg_path_length_before) * 100
+modularity_percentage_change <- ((modularity_after - modularity_before) / modularity_before) * 100
+clustering_percentage_change <- ((clustering_after - clustering_before) / clustering_before) * 100
+
+# Step 6: Create a table to compare all metrics
+network_comparison <- data.frame(
+  Metric = c("Average Degree", "Average Betweenness", "Average Closeness", "Network Density",
+             "Network Diameter", "Average Path Length", "Modularity", "Clustering Coefficient"),
+  Before = c(mean(degree_before_attack), mean(betweenness_before_attack), mean(closeness_before_attack),
+             density_before, diameter_before, avg_path_length_before, modularity_before, clustering_before),
+  After = c(mean(degree_after_attack), mean(betweenness_after_attack), mean(closeness_after_attack),
+            density_after, diameter_after, avg_path_length_after, modularity_after, clustering_after),
+  Percentage_Change = c(degree_percentage_change, betweenness_percentage_change, closeness_percentage_change,
+                        density_percentage_change, diameter_percentage_change, avg_path_length_percentage_change,
+                        modularity_percentage_change, clustering_percentage_change)
+)
+
+# Step 7: Display the results table
+cat("Comparison of Network Metrics Before and After the Attack:\n")
+print(network_comparison)
+```
+
+```{r simulate network attack, echo=FALSE}
+# Step 1: Create a copy of the original network (graph_items)
+graph_copy <- graph_items  # Duplicate the original graph to preserve it
+
+# Step 2: Simulate the attack by removing the high-anxiety items
+high_anxiety_items <- names(degree_centrality)[high_degree_items]  # Using the top high-degree items as high anxiety items
+graph_after_attack <- delete_vertices(graph_copy, high_anxiety_items)
+
+# Step 3: Calculate centrality metrics (degree, betweenness, closeness) before and after the attack
+degree_before_attack <- degree(graph_items)
+degree_after_attack <- degree(graph_after_attack)
+
+betweenness_before_attack <- betweenness(graph_items)
+betweenness_after_attack <- betweenness(graph_after_attack)
+
+closeness_before_attack <- closeness(graph_items)
+closeness_after_attack <- closeness(graph_after_attack)
+
+# Step 4: Additional network metrics (before and after the attack)
+# 1. Network Density
+density_before <- edge_density(graph_items)
+density_after <- edge_density(graph_after_attack)
+
+# 2. Diameter (longest shortest path in the network)
+diameter_before <- diameter(graph_items)
+diameter_after <- diameter(graph_after_attack)
+
+# 3. Average Path Length
+avg_path_length_before <- mean_distance(graph_items)
+avg_path_length_after <- mean_distance(graph_after_attack)
+
+# 4. Modularity (using Louvain community detection)
+communities_before <- cluster_louvain(graph_items)
+modularity_before <- modularity(communities_before)
+
+communities_after <- cluster_louvain(graph_after_attack)
+modularity_after <- modularity(communities_after)
+
+# 5. Clustering Coefficient (global clustering coefficient)
+clustering_before <- transitivity(graph_items, type = "global")
+clustering_after <- transitivity(graph_after_attack, type = "global")
+
+# Step 5: Calculate percentage change for each metric
+# For degree and betweenness, calculate the percentage change
+degree_percentage_change <- ((mean(degree_after_attack) - mean(degree_before_attack)) / mean(degree_before_attack)) * 100
+betweenness_percentage_change <- ((mean(betweenness_after_attack) - mean(betweenness_before_attack)) / mean(betweenness_before_attack)) * 100
+closeness_percentage_change <- ((mean(closeness_after_attack) - mean(closeness_before_attack)) / mean(closeness_before_attack)) * 100
+
+# For other metrics, calculate the percentage change directly
+density_percentage_change <- ((density_after - density_before) / density_before) * 100
+diameter_percentage_change <- ((diameter_after - diameter_before) / diameter_before) * 100
+avg_path_length_percentage_change <- ((avg_path_length_after - avg_path_length_before) / avg_path_length_before) * 100
+modularity_percentage_change <- ((modularity_after - modularity_before) / modularity_before) * 100
+clustering_percentage_change <- ((clustering_after - clustering_before) / clustering_before) * 100
+
+# Step 6: Create a table to compare all metrics
+network_comparison <- data.frame(
+  Metric = c("Average Degree", "Average Betweenness", "Average Closeness", "Network Density",
+             "Network Diameter", "Average Path Length", "Modularity", "Clustering Coefficient"),
+  Before = c(mean(degree_before_attack), mean(betweenness_before_attack), mean(closeness_before_attack),
+             density_before, diameter_before, avg_path_length_before, modularity_before, clustering_before),
+  After = c(mean(degree_after_attack), mean(betweenness_after_attack), mean(closeness_after_attack),
+            density_after, diameter_after, avg_path_length_after, modularity_after, clustering_after),
+  Percentage_Change = c(degree_percentage_change, betweenness_percentage_change, closeness_percentage_change,
+                        density_percentage_change, diameter_percentage_change, avg_path_length_percentage_change,
+                        modularity_percentage_change, clustering_percentage_change)
+)
+
+# Step 7: Display the results table
+cat("Comparison of Network Metrics Before and After the Attack:\n")
+print(network_comparison)
+
+```
+
+```{r permutation test, echo=FALSE}
+
+# Set seed for reproducibility
+set.seed(123)
+n_permutations <- 50000  # Number of permutations
+metrics <- c("degree", "betweenness", "closeness", "density", "diameter", "path_length", "modularity", "clustering")
+p_values <- numeric(length(metrics))  # Vector to store p-values
+
+# List to store the before and after values for each metric
+before_values <- list(
+  degree = degree_before_attack,
+  betweenness = betweenness_before_attack,
+  closeness = closeness_before_attack,
+  density = density_before,
+  diameter = diameter_before,
+  path_length = avg_path_length_before,
+  modularity = modularity_before,
+  clustering = clustering_before
+)
+
+after_values <- list(
+  degree = degree_after_attack,
+  betweenness = betweenness_after_attack,
+  closeness = closeness_after_attack,
+  density = density_after,
+  diameter = diameter_after,
+  path_length = avg_path_length_after,
+  modularity = modularity_after,
+  clustering = clustering_after
+)
+
+# Perform permutation test for each metric
+for (metric in metrics) {
+  perm_diff <- numeric(n_permutations)
+  
+  # Perform permutations for each metric
+  for (i in 1:n_permutations) {
+    # Shuffle the data (randomize) for 'before' and 'after' values
+    permuted_before <- sample(before_values[[metric]])
+    permuted_after <- sample(after_values[[metric]])
+    
+    # Calculate the difference in the permuted data
+    perm_diff[i] <- mean(permuted_after) - mean(permuted_before)
+  }
+  
+  # Calculate the observed difference
+  observed_diff <- mean(after_values[[metric]]) - mean(before_values[[metric]])
+  
+  # Calculate p-value as proportion of permuted differences greater than or equal to the observed difference
+  p_values[metric] <- mean(abs(perm_diff) >= abs(observed_diff))
+  
+  # Ensure the p-value is not exactly 0 (if too small, return a very small value)
+  if (p_values[metric] == 0) {
+    p_values[metric] <- 1 / n_permutations  # Assign the smallest non-zero p-value
+  }
+}
+
+# Output the p-values for each metric
+for (metric in metrics) {
+  cat(sprintf("%s Permutation Test p-value: %.4f\n", metric, p_values[metric]))
+}
+
+```
+
+```{r plot permutation, echo=FALSE, fig.width=8, fig.height=8}
+# Select only the specified metrics
+selected_metrics <- c("degree", "betweenness", "closeness", "density")
+
+# Initialize data frames for storing results
+perm_data <- data.frame()
+obs_data <- data.frame()
+
+# Loop through each selected metric
+for (metric in selected_metrics) {
+  perm_diff <- numeric(n_permutations)
+  
+  # Perform permutations for each metric
+  for (i in 1:n_permutations) {
+    permuted_before <- sample(before_values[[metric]])
+    permuted_after <- sample(after_values[[metric]])
+    perm_diff[i] <- mean(permuted_after) - mean(permuted_before)
+  }
+  
+  # Observed difference
+  observed_diff <- mean(after_values[[metric]]) - mean(before_values[[metric]])
+  
+  # Append to data frames
+  perm_data <- rbind(perm_data, data.frame(Metric = metric, PermutationDifference = perm_diff))
+  obs_data <- rbind(obs_data, data.frame(Metric = metric, ObservedDifference = observed_diff))
+}
+
+# Visualize the permutation test results for the selected metrics
+library(ggplot2)
+
+ggplot(perm_data, aes(x = PermutationDifference)) +
+  geom_density(fill = "skyblue", alpha = 0.5) +
+  geom_vline(data = obs_data, aes(xintercept = ObservedDifference), color = "red", linetype = "dashed") +
+  facet_wrap(~ Metric, scales = "free", ncol = 2) +
+  labs(
+    title = "Permutation Test for Selected Network Metrics",
+    x = "Difference in Permuted Means",
+    y = "Density"
+  ) +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 10, face = "bold"))
+
+```
+
